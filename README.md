@@ -18,7 +18,7 @@ Compact interface with tools, color picker, hex preview, and canvas controls.
 
 ## Quick Start
 1. Install PyQt5: `pip install PyQt5`
-2. Run: `python pixel_editor.py`
+2. Run: `python main.py`
 3. Select language if prompted, then start drawing!
 
 ## Usage
