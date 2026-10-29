@@ -65,15 +65,29 @@
          </property>
         </widget>
        </item>
-       <item>
-        <widget class="QPushButton" name="btnSavePNG">
-         <property name="text">
-          <string>Save PNG</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <spacer name="horizontalSpacer_3">
+        <item>
+         <widget class="QPushButton" name="btnSavePNG">
+          <property name="text">
+           <string>Save PNG</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btnLoadC">
+          <property name="text">
+           <string>Load C</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btnSaveC">
+          <property name="text">
+           <string>Save C</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="horizontalSpacer_3">
          <property name="orientation">
           <enum>Qt::Horizontal</enum>
          </property>

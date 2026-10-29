@@ -1,11 +1,12 @@
 import sys
 import json
 import os
+import re
 import traceback
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QMessageBox,
-                             QPushButton, QLabel, QFileDialog, QDialog,
-                             QVBoxLayout)
+                              QPushButton, QLabel, QFileDialog, QDialog,
+                              QVBoxLayout, QInputDialog)
 from PyQt5.QtCore import (Qt, pyqtSignal)
 from PyQt5.QtGui import (QPainter, QImage, QPixmap, QColor)
 from PyQt5 import uic
@@ -284,6 +285,7 @@ class PixelEditor(QMainWindow):
         self.history = []
         self.history_index = -1
         self.ui_path = ui_path
+        self.c_array_name = 'wall'
 
         self.setup_ui()
         self.setup_canvas()
@@ -369,6 +371,10 @@ class PixelEditor(QMainWindow):
             self.btnSavePNG.clicked.connect(self.save_png)
         if hasattr(self, 'btnLoadPNG'):
             self.btnLoadPNG.clicked.connect(self.load_png)
+        if hasattr(self, 'btnLoadC'):
+            self.btnLoadC.clicked.connect(self.load_c_array)
+        if hasattr(self, 'btnSaveC'):
+            self.btnSaveC.clicked.connect(self.save_c_array)
         if hasattr(self, 'btnApplySize'):
             self.btnApplySize.clicked.connect(self.apply_size)
         if hasattr(self, 'btnRotate90'):
@@ -711,6 +717,132 @@ class PixelEditor(QMainWindow):
                 self.update_text_from_image()
             else:
                 QMessageBox.warning(self, "Error", "Could not load image")
+
+    @staticmethod
+    def parse_c_array(text):
+        text = re.sub(r'//[^\n]*', '', text)
+        text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)
+
+        name = None
+        m = re.search(r'uint16_t\s+([A-Za-z_]\w*)', text)
+        if m:
+            name = m.group(1)
+
+        start = text.find('{')
+        if start == -1:
+            return None
+        depth = 0
+        body = None
+        for i in range(start, len(text)):
+            if text[i] == '{':
+                depth += 1
+            elif text[i] == '}':
+                depth -= 1
+                if depth == 0:
+                    body = text[start + 1:i]
+                    break
+        if body is None:
+            return None
+
+        values = []
+        for token in body.split(','):
+            token = token.strip().rstrip(';').strip()
+            if not token:
+                continue
+            token = re.sub(r'[uUlL]$', '', token)
+            try:
+                value = int(token, 0)
+            except ValueError:
+                raise ValueError(f"Invalid value: {token}")
+            if not 0 <= value <= 0xFFFF:
+                raise ValueError(f"Value out of range: {token}")
+            values.append(value)
+
+        if not values:
+            return None
+        return name, values
+
+    def save_c_array(self):
+        if not self.canvas.image:
+            return
+
+        name, ok = QInputDialog.getText(self, "Save C array", "Array name:", text=self.c_array_name)
+        if not ok or not name.strip():
+            return
+        name = re.sub(r'[^A-Za-z0-9_]', '_', name.strip()) or 'wall'
+        self.c_array_name = name
+
+        data = self.canvas.get_image_data()
+        w = self.canvas.image.width()
+
+        lines = []
+        for i in range(0, len(data), w):
+            row = data[i:i + w]
+            line = ", ".join([f"0x{val:04X}" for val in row])
+            if i + w < len(data):
+                line += ","
+            lines.append("  " + line)
+
+        content = (f"const uint16_t {name}[{len(data)}] PROGMEM = {{\n"
+                   + "\n".join(lines)
+                   + "\n};")
+
+        filename, _ = QFileDialog.getSaveFileName(self, "Save C array", f"{name}.h",
+                                                  "C Files (*.c *.h *.cpp);;Text Files (*.txt)")
+        if filename:
+            try:
+                with open(filename, 'w') as f:
+                    f.write(content)
+                QMessageBox.information(self, "Success", f"Array saved: {filename}")
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Could not save file: {e}")
+
+    def load_c_array(self):
+        filename, _ = QFileDialog.getOpenFileName(self, "Load C array", "",
+                                                  "C Files (*.c *.h *.cpp);;Text Files (*.txt)")
+        if not filename:
+            return
+
+        try:
+            with open(filename, 'r') as f:
+                text = f.read()
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Could not read file: {e}")
+            return
+
+        try:
+            parsed = self.parse_c_array(text)
+        except ValueError as e:
+            QMessageBox.warning(self, "Error", str(e))
+            return
+
+        if not parsed:
+            QMessageBox.warning(self, "Error", "No uint16_t array found in file")
+            return
+
+        name, values = parsed
+        self.c_array_name = name or self.c_array_name
+
+        count = len(values)
+        current_w = self.spinWidth.value() if hasattr(self, 'spinWidth') else 15
+        candidates = [d for d in range(1, min(100, count) + 1) if count % d == 0]
+        if not candidates:
+            QMessageBox.warning(self, "Error", f"Size {count} is too large")
+            return
+        width = min(candidates, key=lambda d: abs(d - current_w))
+        height = count // width
+
+        if hasattr(self, 'spinWidth'):
+            self.spinWidth.setValue(width)
+            self.spinHeight.setValue(height)
+
+        self.canvas.blockSignals(True)
+        self.canvas.set_image_data(values, width, height)
+        self.canvas.blockSignals(False)
+        self.save_to_history()
+        self.update_text_from_image()
+        self.update_info()
+        QMessageBox.information(self, "Success", f"Loaded array '{self.c_array_name}' ({width}x{height})")
 
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key_Plus, Qt.Key_Equal):
